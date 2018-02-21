@@ -44,6 +44,9 @@ class CloudIoT:
     @asyncio.coroutine
     def connect(self):
         """Connect to the IoT broker."""
+        if self.state != STATE_DISCONNECTED:
+            raise RuntimeError('Connect called while not disconnected')
+
         hass = self.cloud.hass
         if self.cloud.subscription_expired:
             # Try refreshing the token to see if it is still expired.
@@ -55,9 +58,6 @@ class CloudIoT:
                     'cloud_subscription_expired')
                 self.state = STATE_DISCONNECTED
                 return
-
-        if self.state == STATE_CONNECTED:
-            raise RuntimeError('Already connected')
 
         @asyncio.coroutine
         def _handle_hass_stop(event):
@@ -92,6 +92,9 @@ class CloudIoT:
 
                 if msg.type in (WSMsgType.CLOSED, WSMsgType.CLOSING):
                     break
+
+                elif msg.type == WSMsgType.ERROR:
+                    disconnect_warn = 'Connection error'
 
                 elif msg.type != WSMsgType.TEXT:
                     disconnect_warn = 'Received non-Text message: {}'.format(
@@ -173,6 +176,7 @@ class CloudIoT:
                         min(30, (self.tries - 1) * 5), loop=hass.loop))
                     yield from self.retry_task
                     self.retry_task = None
+                    self.state = STATE_DISCONNECTED
                     hass.async_add_job(self.connect())
                 except asyncio.CancelledError:
                     # Happens if disconnect called
